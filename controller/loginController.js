@@ -1,5 +1,4 @@
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const logLoginEvent = require("../Monitor_&_Logging/loginLogger");
 const getUserCredentials = require("../model/getUserCredentials.js");
 const {
@@ -16,6 +15,7 @@ const logger = require("../utils/logger");
 const nodemailer = require("nodemailer");
 const { ok, fail, validationError } = require("../utils/apiResponse");
 const { msg } = require("../utils/messages");
+const authService = require("../services/authService");
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -31,17 +31,13 @@ function sanitizeUserForResponse(user) {
   return safeUser;
 }
 
-function createAccessToken(user) {
-  return jwt.sign(
-    {
-      userId: user.user_id,
-      email: user.email,
-      role: user.user_roles?.role_name || "unknown",
-      type: "access",
-    },
-    process.env.JWT_TOKEN,
-    { expiresIn: "1h" }
-  );
+function getDeviceInfo(req) {
+  return {
+    ip: req.ip,
+    userAgent: req.get("User-Agent") || "Unknown",
+    deviceId: req.get("X-Device-Id") || null,
+    clientType: req.get("X-Client-Type") || "web",
+  };
 }
 
 const login = async (req, res) => {
@@ -255,8 +251,16 @@ const login = async (req, res) => {
       },
     });
 
-    const token = createAccessToken(user);
-    return ok(res, { user: sanitizeUserForResponse(user), token });
+    const session = await authService.generateTokenPair(user, getDeviceInfo(req));
+    return ok(res, {
+      user: sanitizeUserForResponse(user),
+      token: session.accessToken,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: session.expiresIn,
+      tokenType: session.tokenType,
+      session,
+    });
   } catch (err) {
     log(
       createLog({
@@ -309,8 +313,16 @@ const loginMfa = async (req, res) => {
       return fail(res, msg("auth.login.mfa_invalid"), 401, "AUTH_MFA_INVALID");
     }
 
-    const token = createAccessToken(user);
-    return ok(res, { user: sanitizeUserForResponse(user), token });
+    const session = await authService.generateTokenPair(user, getDeviceInfo(req));
+    return ok(res, {
+      user: sanitizeUserForResponse(user),
+      token: session.accessToken,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: session.expiresIn,
+      tokenType: session.tokenType,
+      session,
+    });
   } catch (err) {
     logger.error("MFA error", err);
     return fail(res, msg("general.internal_error"), 500, "INTERNAL_ERROR");
