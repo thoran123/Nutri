@@ -1,5 +1,4 @@
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const logLoginEvent = require("../Monitor_&_Logging/loginLogger");
 const getUserCredentials = require("../model/getUserCredentials.js");
 const {
@@ -22,7 +21,7 @@ const {
 } = require("../services/authResponse");
 const { msg } = require("../utils/messages");
 const { sessionHookOnLoginSuccess } = require("../services/sessionLogService");
-
+const authService = require("../services/authService");
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -38,17 +37,13 @@ function sanitizeUserForResponse(user) {
   return safeUser;
 }
 
-function createAccessToken(user) {
-  return jwt.sign(
-    {
-      userId: user.user_id,
-      email: user.email,
-      role: user.user_roles?.role_name || "unknown",
-      type: "access",
-    },
-    process.env.JWT_TOKEN,
-    { expiresIn: "1h" }
-  );
+function getDeviceInfo(req) {
+  return {
+    ip: req.ip,
+    userAgent: req.get("User-Agent") || "Unknown",
+    deviceId: req.get("X-Device-Id") || null,
+    clientType: req.get("X-Client-Type") || "web",
+  };
 }
 
 const login = async (req, res) => {
@@ -276,7 +271,7 @@ const login = async (req, res) => {
       },
     });
 
-    const token = createAccessToken(user);    
+    const session = await authService.generateTokenPair(user, getDeviceInfo(req));
     // CT-004 Week 6: Log session for alert A6 (geo-impossible travel detection)
     try {
       await sessionHookOnLoginSuccess(req, user);
@@ -286,7 +281,12 @@ const login = async (req, res) => {
     }
     return authOk(res, {
       user: sanitizeUserForResponse(user),
-      session: { accessToken: token, tokenType: "Bearer" },
+      token: session.accessToken,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: session.expiresIn,
+      tokenType: session.tokenType,
+      session,
     });
   } catch (err) {
     log(
@@ -351,10 +351,15 @@ const loginMfa = async (req, res) => {
       });
     }
 
-    const token = createAccessToken(user);
+    const session = await authService.generateTokenPair(user, getDeviceInfo(req));
     return authOk(res, {
       user: sanitizeUserForResponse(user),
-      session: { accessToken: token, tokenType: "Bearer" },
+      token: session.accessToken,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: session.expiresIn,
+      tokenType: session.tokenType,
+      session,
     });
   } catch (err) {
     logger.error("MFA error", err);
