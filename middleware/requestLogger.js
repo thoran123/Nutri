@@ -79,6 +79,7 @@ const requestLoggingMiddleware = (req, res, next) => {
       duration,
       requestId,
       userId: req.user?.userId || null,
+      responseBody: data,
     });
 
     // Call original send

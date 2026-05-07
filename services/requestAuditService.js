@@ -1,4 +1,12 @@
 const MAX_RECENT_REQUESTS = 200;
+const MAX_RESPONSE_SAMPLE_BYTES = 12000;
+const WATCHED_RESPONSE_PREFIXES = [
+  '/api/recommendations',
+  '/api/mealplan',
+  '/api/recipe',
+  '/api/barcode',
+  '/api/imageClassification',
+];
 
 const runtime = {
   startedAt: new Date().toISOString(),
@@ -12,10 +20,12 @@ const runtime = {
     },
     recent: [],
   },
+  responseSamples: {},
 };
 
 function normalizePath(pathname) {
-  return String(pathname || '').trim() || 'unknown';
+  const normalized = String(pathname || '').trim() || 'unknown';
+  return normalized.split('?')[0].replace(/\/+$/, '') || '/';
 }
 
 function classifyStatus(statusCode) {
@@ -25,6 +35,40 @@ function classifyStatus(statusCode) {
   return 'success';
 }
 
+function shouldCaptureSample(normalizedPath) {
+  return WATCHED_RESPONSE_PREFIXES.find(
+    (prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`)
+  ) || null;
+}
+
+function safeParseResponseBody(responseBody) {
+  if (responseBody == null) return null;
+
+  if (typeof responseBody === 'object') {
+    return responseBody;
+  }
+
+  if (Buffer.isBuffer(responseBody)) {
+    if (responseBody.length > MAX_RESPONSE_SAMPLE_BYTES) return null;
+    responseBody = responseBody.toString('utf8');
+  }
+
+  if (typeof responseBody !== 'string') {
+    return null;
+  }
+
+  const trimmed = responseBody.trim();
+  if (!trimmed || trimmed.length > MAX_RESPONSE_SAMPLE_BYTES) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch (_error) {
+    return null;
+  }
+}
+
 function recordRequest({
   method,
   path,
@@ -32,6 +76,7 @@ function recordRequest({
   duration,
   requestId,
   userId = null,
+  responseBody = null,
 } = {}) {
   const normalizedPath = normalizePath(path);
   const normalizedMethod = String(method || 'GET').toUpperCase();
@@ -69,6 +114,21 @@ function recordRequest({
   if (runtime.requests.recent.length > MAX_RECENT_REQUESTS) {
     runtime.requests.recent.length = MAX_RECENT_REQUESTS;
   }
+
+  const samplePrefix = shouldCaptureSample(normalizedPath);
+  const parsedResponseBody = safeParseResponseBody(responseBody);
+  if (samplePrefix && parsedResponseBody) {
+    runtime.responseSamples[samplePrefix] = {
+      endpoint: samplePrefix,
+      requestPath: normalizedPath,
+      method: normalizedMethod,
+      statusCode: Number(statusCode) || null,
+      requestId: requestId || null,
+      userId: userId || null,
+      capturedAt: new Date().toISOString(),
+      responseBody: parsedResponseBody,
+    };
+  }
 }
 
 function getSnapshot() {
@@ -81,6 +141,8 @@ function getSnapshot() {
         .sort((left, right) => right.total - left.total),
       recent: runtime.requests.recent.slice(0, 50),
     },
+    responseSamples: Object.values(runtime.responseSamples)
+      .sort((left, right) => String(right.capturedAt).localeCompare(String(left.capturedAt))),
   };
 }
 
