@@ -9,6 +9,7 @@
     "test": "jest --runInBand --detectOpenHandles",
     "test:unit": "mocha ./test/unit/**/*.test.js --timeout 5000 --exit",
     "test:contract": "jest ./test/contractTests/ --testTimeout=10000 --forceExit",
+    "test:integration": "RUN_INTEGRATION=1 jest --runInBand --detectOpenHandles",
     "lint": "eslint . --ext .js --max-warnings=0",
     "lint:fix": "eslint . --ext .js --fix",
     "format": "prettier --write \"**/*.{js,json,md}\"",
