@@ -11,6 +11,9 @@ module.exports = app => {
     app.use("/api/faq", require('./faq'));
     app.use('/api/health-tools', require('./healthTools'));
 
+    // community surface (feed, posts, comments, likes, leaderboard)
+    app.use('/api/community', require('./community'));
+
     app.use("/api/recipe", require('./recipe'));
     app.use("/api/appointments", require('./appointment'));
     app.use("/api/imageClassification", require('./imageClassification'));
