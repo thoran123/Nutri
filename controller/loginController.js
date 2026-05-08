@@ -272,7 +272,6 @@ const login = async (req, res) => {
     });
 
     const session = await authService.generateTokenPair(user, getDeviceInfo(req));
-    return ok(res, {
     // CT-004 Week 6: Log session for alert A6 (geo-impossible travel detection)
     try {
       await sessionHookOnLoginSuccess(req, user);
