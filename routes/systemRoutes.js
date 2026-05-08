@@ -71,6 +71,34 @@ if (process.env.NODE_ENV !== 'production') {
     }
   });
 
+  router.post('/dev/live-audit/run', async (req, res) => {
+    if (!isLocalRequest(req)) {
+      return res.status(403).json({
+        success: false,
+        error: 'This development endpoint is restricted to local requests.',
+        code: 'LOCAL_ONLY_ENDPOINT',
+      });
+    }
+
+    try {
+      const overview = await getLiveOverview({ force: true });
+      res.status(200).json({
+        success: true,
+        data: overview,
+        meta: {
+          mode: 'dev-live-refresh',
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to refresh live integration audit overview',
+        code: 'LIVE_AUDIT_REFRESH_FAILED',
+        details: error.message,
+      });
+    }
+  });
+
   router.get('/dev/integration-audit/overview', async (req, res) => {
     if (!isLocalRequest(req)) {
       return res.status(403).json({
