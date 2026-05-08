@@ -14,9 +14,9 @@ describe('Recommendation Controller', () => {
   it('returns the service payload to the client', async () => {
     const generateRecommendations = sinon.stub().resolves({
       success: true,
-      data: {
-        items: [{ rank: 1, recipeId: 10, title: 'Protein Bowl' }]
-      },
+      generatedAt: '2026-04-25T00:00:00.000Z',
+      contractVersion: 'recommendation-response-v1',
+      source: { strategy: 'hybrid_rule_based' },
       recommendations: [{ rank: 1, recipeId: 10, title: 'Protein Bowl' }]
     });
 
@@ -46,13 +46,14 @@ describe('Recommendation Controller', () => {
 
     expect(generateRecommendations.calledOnce).to.equal(true);
     expect(res.status.calledWith(200)).to.equal(true);
-    expect(res.json.calledWith({
+    expect(res.json.calledOnce).to.equal(true);
+    expect(res.json.firstCall.args[0]).to.deep.equal({
       success: true,
-      data: {
-        items: [{ rank: 1, recipeId: 10, title: 'Protein Bowl' }]
-      },
+      generatedAt: '2026-04-25T00:00:00.000Z',
+      contractVersion: 'recommendation-response-v1',
+      source: { strategy: 'hybrid_rule_based' },
       recommendations: [{ rank: 1, recipeId: 10, title: 'Protein Bowl' }]
-    })).to.equal(true);
+    });
   });
 
   it('returns 400 when dietaryConstraints is missing', async () => {
@@ -83,13 +84,13 @@ describe('Recommendation Controller', () => {
 
     expect(generateRecommendations.called).to.equal(false);
     expect(res.status.calledWith(400)).to.equal(true);
-    expect(res.json.calledWith({
+    expect(res.json.firstCall.args[0]).to.deep.equal({
       success: false,
       error: {
         message: 'dietaryConstraints is required and must be an object',
         code: 'VALIDATION_ERROR'
       }
-    })).to.equal(true);
+    });
   });
 
   it('returns 400 when maxResults is malformed', async () => {
@@ -123,13 +124,13 @@ describe('Recommendation Controller', () => {
 
     expect(generateRecommendations.called).to.equal(false);
     expect(res.status.calledWith(400)).to.equal(true);
-    expect(res.json.calledWith({
+    expect(res.json.firstCall.args[0]).to.deep.equal({
       success: false,
       error: {
         message: 'maxResults must be an integer between 1 and 20',
         code: 'VALIDATION_ERROR'
       }
-    })).to.equal(true);
+    });
   });
 
   it('returns 400 when aiInsights is malformed', async () => {
@@ -163,13 +164,13 @@ describe('Recommendation Controller', () => {
 
     expect(generateRecommendations.called).to.equal(false);
     expect(res.status.calledWith(400)).to.equal(true);
-    expect(res.json.calledWith({
+    expect(res.json.firstCall.args[0]).to.deep.equal({
       success: false,
       error: {
         message: 'aiInsights must be an object when provided',
         code: 'VALIDATION_ERROR'
       }
-    })).to.equal(true);
+    });
   });
 
   it('returns a generic 500 error when the service throws an unexpected internal error', async () => {
@@ -201,12 +202,12 @@ describe('Recommendation Controller', () => {
     await controller.getRecommendations(req, res);
 
     expect(res.status.calledWith(500)).to.equal(true);
-    expect(res.json.calledWith({
+    expect(res.json.firstCall.args[0]).to.deep.equal({
       success: false,
       error: {
         message: 'Failed to generate recommendations',
         code: 'RECOMMENDATION_FAILED'
       }
-    })).to.equal(true);
+    });
   });
 });

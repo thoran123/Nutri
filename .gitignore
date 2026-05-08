@@ -10,6 +10,8 @@ test-results/
 server.pid
 server.log
 *.bak
+.env
+node_modules
 
 # TLS certificates and private keys — generate locally, never commit
 *.pem
@@ -17,8 +19,3 @@ server.log
 *.crt
 *.p12
 certs/
-
-# Runtime log artifacts
-*.jsonl
-logs/
-certs/*.pem
