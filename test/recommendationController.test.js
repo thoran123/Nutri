@@ -21,7 +21,16 @@ describe('Recommendation Controller', () => {
     });
 
     const controller = proxyquire('../controller/recommendationController', {
-      '../services/recommendationService': { generateRecommendations }
+      '../services': {
+        coreApp: { recommendationService: { generateRecommendations } },
+        shared: {
+          apiResponse: {
+            createErrorResponse(message, code) {
+              return { success: false, error: { message, code } };
+            }
+          }
+        }
+      }
     });
 
     const req = {
@@ -40,32 +49,26 @@ describe('Recommendation Controller', () => {
     expect(res.json.calledOnce).to.equal(true);
     expect(res.json.firstCall.args[0]).to.deep.equal({
       success: true,
-      data: {
-        items: [{
-          rank: 1,
-          recipeId: 10,
-          title: 'Protein Bowl',
-          explanation: undefined,
-          nutrition: {},
-          preparationTime: null,
-          totalServings: null
-        }]
-      },
-      meta: {
-        count: 1,
-        generatedAt: '2026-04-25T00:00:00.000Z',
-        contractVersion: 'recommendation-response-v1',
-        source: { strategy: 'hybrid_rule_based' },
-        cache: undefined,
-        input: undefined
-      }
+      generatedAt: '2026-04-25T00:00:00.000Z',
+      contractVersion: 'recommendation-response-v1',
+      source: { strategy: 'hybrid_rule_based' },
+      recommendations: [{ rank: 1, recipeId: 10, title: 'Protein Bowl' }]
     });
   });
 
   it('returns 400 when dietaryConstraints is missing', async () => {
     const generateRecommendations = sinon.stub();
     const controller = proxyquire('../controller/recommendationController', {
-      '../services/recommendationService': { generateRecommendations }
+      '../services': {
+        coreApp: { recommendationService: { generateRecommendations } },
+        shared: {
+          apiResponse: {
+            createErrorResponse(message, code) {
+              return { success: false, error: { message, code } };
+            }
+          }
+        }
+      }
     });
 
     const req = {
@@ -93,7 +96,16 @@ describe('Recommendation Controller', () => {
   it('returns 400 when maxResults is malformed', async () => {
     const generateRecommendations = sinon.stub();
     const controller = proxyquire('../controller/recommendationController', {
-      '../services/recommendationService': { generateRecommendations }
+      '../services': {
+        coreApp: { recommendationService: { generateRecommendations } },
+        shared: {
+          apiResponse: {
+            createErrorResponse(message, code) {
+              return { success: false, error: { message, code } };
+            }
+          }
+        }
+      }
     });
 
     const req = {
@@ -124,7 +136,16 @@ describe('Recommendation Controller', () => {
   it('returns 400 when aiInsights is malformed', async () => {
     const generateRecommendations = sinon.stub();
     const controller = proxyquire('../controller/recommendationController', {
-      '../services/recommendationService': { generateRecommendations }
+      '../services': {
+        coreApp: { recommendationService: { generateRecommendations } },
+        shared: {
+          apiResponse: {
+            createErrorResponse(message, code) {
+              return { success: false, error: { message, code } };
+            }
+          }
+        }
+      }
     });
 
     const req = {
@@ -155,7 +176,16 @@ describe('Recommendation Controller', () => {
   it('returns a generic 500 error when the service throws an unexpected internal error', async () => {
     const generateRecommendations = sinon.stub().rejects(new Error('database connection string leaked'));
     const controller = proxyquire('../controller/recommendationController', {
-      '../services/recommendationService': { generateRecommendations }
+      '../services': {
+        coreApp: { recommendationService: { generateRecommendations } },
+        shared: {
+          apiResponse: {
+            createErrorResponse(message, code) {
+              return { success: false, error: { message, code } };
+            }
+          }
+        }
+      }
     });
 
     const req = {

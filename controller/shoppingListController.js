@@ -1,32 +1,39 @@
-const { coreApp, authAndIdentity } = require('../services');
-
-const { shoppingListService } = coreApp;
-const { serviceError } = authAndIdentity;
-const { isServiceError } = serviceError;
+const shoppingListService = require('../services/shoppingListService');
+const { isServiceError } = require('../services/serviceError');
+const normalizeId = require('../utils/normalizeId');
 
 function handleError(res, error, label) {
   if (isServiceError(error)) {
     return res.status(error.statusCode).json({
+      success: false,
       error: error.message,
       statusCode: error.statusCode
     });
   }
-
   console.error(`${label} error:`, error);
   return res.status(500).json({
+    success: false,
     error: 'Internal server error',
     statusCode: 500
   });
 }
 
-function handleServiceResult(res, result) {
-  return res.status(result.statusCode).json(result.body);
+function sendWrapped(res, statusCode, body) {
+  if (body && typeof body === 'object' && ('success' in body)) {
+    return res.status(statusCode).json(body);
+  }
+  return res.status(statusCode).json({
+    success: statusCode >= 200 && statusCode < 300,
+    data: statusCode >= 200 && statusCode < 300 ? body : undefined,
+    error: statusCode >= 400 ? (body && body.error ? body.error : body) : undefined
+  });
 }
 
 async function getIngredientOptions(req, res) {
   try {
-    const result = await shoppingListService.getIngredientOptions(req.query.name);
-    return handleServiceResult(res, result);
+    const name = req.query?.name || '';
+    const result = await shoppingListService.getIngredientOptions(name);
+    return sendWrapped(res, result.statusCode || 200, result.body || result);
   } catch (error) {
     return handleError(res, error, 'getIngredientOptions');
   }
@@ -34,11 +41,13 @@ async function getIngredientOptions(req, res) {
 
 async function generateFromMealPlan(req, res) {
   try {
-    const result = await shoppingListService.generateFromMealPlan({
-      userId: req.body.user_id,
-      mealPlanIds: req.body.meal_plan_ids
-    });
-    return handleServiceResult(res, result);
+    if (!req.body || !req.body.user_id) {
+      return res.status(400).json({ success: false, error: 'user_id required' });
+    }
+    const userId = normalizeId(req.body.user_id);
+    const mealPlanIds = Array.isArray(req.body.meal_plan_ids) ? req.body.meal_plan_ids : [];
+    const result = await shoppingListService.generateFromMealPlan({ userId, mealPlanIds });
+    return sendWrapped(res, result.statusCode || 200, result.body || result);
   } catch (error) {
     return handleError(res, error, 'generateFromMealPlan');
   }
@@ -46,13 +55,17 @@ async function generateFromMealPlan(req, res) {
 
 async function createShoppingList(req, res) {
   try {
+    if (!req.body || !req.body.user_id) {
+      return res.status(400).json({ success: false, error: 'user_id required' });
+    }
+    const userId = normalizeId(req.body.user_id);
     const result = await shoppingListService.createShoppingList({
-      userId: req.body.user_id,
+      userId,
       name: req.body.name,
       items: req.body.items,
       estimatedTotalCost: req.body.estimated_total_cost
     });
-    return handleServiceResult(res, result);
+    return sendWrapped(res, result.statusCode || 201, result.body || result);
   } catch (error) {
     return handleError(res, error, 'createShoppingList');
   }
@@ -60,8 +73,13 @@ async function createShoppingList(req, res) {
 
 async function getShoppingList(req, res) {
   try {
-    const result = await shoppingListService.getShoppingList(req.query.user_id);
-    return handleServiceResult(res, result);
+    const rawUserId = req.query?.user_id || req.query?.userId;
+    if (!rawUserId) {
+      return res.status(400).json({ success: false, error: 'user_id required' });
+    }
+    const userId = normalizeId(rawUserId);
+    const result = await shoppingListService.getShoppingList(userId);
+    return sendWrapped(res, result.statusCode || 200, result.body || result);
   } catch (error) {
     return handleError(res, error, 'getShoppingList');
   }
@@ -69,12 +87,17 @@ async function getShoppingList(req, res) {
 
 async function updateShoppingListItem(req, res) {
   try {
-    const result = await shoppingListService.updateShoppingListItem(req.params.id, {
-      purchased: req.body.purchased,
-      quantity: req.body.quantity,
-      notes: req.body.notes
+    const rawId = req.params?.id;
+    if (!rawId) {
+      return res.status(400).json({ success: false, error: 'id param required' });
+    }
+    const id = normalizeId(rawId);
+    const result = await shoppingListService.updateShoppingListItem(id, {
+      purchased: req.body?.purchased,
+      quantity: req.body?.quantity,
+      notes: req.body?.notes
     });
-    return handleServiceResult(res, result);
+    return sendWrapped(res, result.statusCode || 200, result.body || result);
   } catch (error) {
     return handleError(res, error, 'updateShoppingListItem');
   }
@@ -83,17 +106,17 @@ async function updateShoppingListItem(req, res) {
 async function addShoppingListItem(req, res) {
   try {
     const result = await shoppingListService.addShoppingListItem({
-      shoppingListId: req.body.shopping_list_id,
-      ingredientName: req.body.ingredient_name,
-      category: req.body.category,
-      quantity: req.body.quantity,
-      unit: req.body.unit,
-      measurement: req.body.measurement,
-      notes: req.body.notes,
-      mealTags: req.body.meal_tags,
-      estimatedCost: req.body.estimated_cost
+      shoppingListId: req.body?.shopping_list_id ? normalizeId(req.body.shopping_list_id) : undefined,
+      ingredientName: req.body?.ingredient_name,
+      category: req.body?.category,
+      quantity: req.body?.quantity,
+      unit: req.body?.unit,
+      measurement: req.body?.measurement,
+      notes: req.body?.notes,
+      mealTags: req.body?.meal_tags,
+      estimatedCost: req.body?.estimated_cost
     });
-    return handleServiceResult(res, result);
+    return sendWrapped(res, result.statusCode || 201, result.body || result);
   } catch (error) {
     return handleError(res, error, 'addShoppingListItem');
   }
@@ -101,8 +124,13 @@ async function addShoppingListItem(req, res) {
 
 async function deleteShoppingListItem(req, res) {
   try {
-    const result = await shoppingListService.deleteShoppingListItem(req.params.id);
-    return handleServiceResult(res, result);
+    const rawId = req.params?.id;
+    if (!rawId) {
+      return res.status(400).json({ success: false, error: 'id param required' });
+    }
+    const id = normalizeId(rawId);
+    const result = await shoppingListService.deleteShoppingListItem(id);
+    return sendWrapped(res, result.statusCode || 200, result.body || result);
   } catch (error) {
     return handleError(res, error, 'deleteShoppingListItem');
   }

@@ -3,7 +3,10 @@ info:
   title: NutriHelp API
   version: 1.0.0
 servers:
-- url: http://localhost/api
+- url: http://localhost:8081/api
+  description: Local development (HTTP fallback — no certs)
+- url: https://localhost:8443/api
+  description: Local development (TLS 1.3)
 tags:
 - name: System
   description: System and security monitoring endpoints
@@ -1645,78 +1648,62 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
   /imageClassification:
     post:
-      summary: Image classification
-      description: Receives an image and classifies it
+      summary: Image scan classification
+      description: Receives a food image and returns the shared scan contract used across scan flows.
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
-              type: object
-              properties:
-                image:
-                  type: string
-                  format: binary
+              $ref: '#/components/schemas/ScanImageUploadRequest'
       responses:
         '200':
           description: Image classified successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  prediction:
-                    type: string
-                    example: Avocado:~160 calories per 100 grams
+                $ref: '#/components/schemas/ImageScanResponse'
         '400':
-          description: Bad request - missing image
+          description: Bad request - missing image or invalid upload
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
+                $ref: '#/components/schemas/ScanErrorResponse'
+        '503':
+          description: Classification service temporarily unavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ScanErrorResponse'
   /recipeImageClassification:
     post:
-      summary: Recipe image classification
-      description: Receives an image of a recipe and classifies it
+      summary: Recipe image scan classification
+      description: Receives a recipe image and returns the shared scan contract used across scan flows.
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
-              type: object
-              properties:
-                image:
-                  type: string
-                  format: binary
+              $ref: '#/components/schemas/ScanImageUploadRequest'
       responses:
         '200':
-          description: Image classified successfully
+          description: Recipe image classified successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  prediction:
-                    type: string
-                    example: Lasagna
+                $ref: '#/components/schemas/RecipeImageScanResponse'
         '400':
-          description: Bad request - missing image
+          description: Bad request - missing image or invalid upload
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
+                $ref: '#/components/schemas/ScanErrorResponse'
+        '504':
+          description: Recipe image classification timed out
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ScanErrorResponse'
   /login/mfa:
     post:
       summary: Multi-factor authentication
@@ -3784,48 +3771,48 @@ paths:
                     example: '2025-08-03T12:14:00.706Z'
   /barcode:
     post:
-      summary: Detect user allergen from a given barcode
+      summary: Barcode scan
       description: |
         Retrieves barcode product information and optionally compares parsed ingredients against the supplied user's allergen ingredients.
-        When `user_id` is omitted, the endpoint returns product information only.
+        Returns the same shared scan contract as image-based scan flows.
       parameters:
       - name: code
         in: query
         required: true
         schema:
-          type: integer
+          type: string
         description: Barcode number for allergen detection
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                user_id:
-                  type: integer
-                  description: The user ID
-              required:
-              - user_id
+              $ref: '#/components/schemas/BarcodeScanRequest'
       responses:
         '200':
           description: Barcode scanning successful
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BarcodeAllergenDetection'
+                $ref: '#/components/schemas/BarcodeScanResponse'
+        '400':
+          description: Missing barcode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanErrorResponse'
         '404':
           description: Invalid barcode or product information not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ScanErrorResponse'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ScanErrorResponse'
   /security/events/export:
     get:
       tags:
@@ -5374,6 +5361,253 @@ components:
           items:
             type: object
             additionalProperties: true
+    ScanImageUploadRequest:
+      type: object
+      required:
+      - image
+      properties:
+        image:
+          type: string
+          format: binary
+    BarcodeScanRequest:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: Optional user ID used to compare product ingredients against saved allergen ingredients.
+    ScanQuery:
+      type: object
+      properties:
+        barcode:
+          type: string
+          nullable: true
+        hasUserContext:
+          type: boolean
+          nullable: true
+        uploadField:
+          type: string
+          nullable: true
+    ScanItem:
+      type: object
+      properties:
+        id:
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        barcode:
+          type: string
+          nullable: true
+        imageName:
+          type: string
+          nullable: true
+    ScanNutrition:
+      type: object
+      nullable: true
+      properties:
+        value:
+          type: number
+          format: float
+        unit:
+          type: string
+    ScanClassification:
+      type: object
+      properties:
+        label:
+          type: string
+          nullable: true
+        rawLabel:
+          type: string
+          nullable: true
+        calories:
+          $ref: '#/components/schemas/ScanNutrition'
+        confidence:
+          type: number
+          format: float
+          nullable: true
+        uncertain:
+          type: boolean
+        source:
+          type: string
+          example: ai
+        fallbackUsed:
+          type: boolean
+        alternatives:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              confidence:
+                type: number
+                format: float
+    ScanAllergens:
+      type: object
+      properties:
+        detectedIngredients:
+          type: array
+          items:
+            type: string
+        userIngredients:
+          type: array
+          items:
+            type: string
+        hasMatch:
+          type: boolean
+        matchingIngredients:
+          type: array
+          items:
+            type: string
+    ScanExplainability:
+      type: object
+      properties:
+        service:
+          type: string
+        source:
+          type: string
+        fallbackUsed:
+          type: boolean
+        timedOut:
+          type: boolean
+        circuitOpen:
+          type: boolean
+        durationMs:
+          type: number
+          format: float
+        confidence:
+          type: number
+          format: float
+          nullable: true
+        confidenceThreshold:
+          type: number
+          format: float
+          nullable: true
+        warnings:
+          type: array
+          items:
+            type: string
+        generatedAt:
+          type: string
+          format: date-time
+        contractVersion:
+          type: string
+          example: v1
+    ScanResult:
+      type: object
+      properties:
+        type:
+          type: string
+          example: image
+        entity:
+          type: string
+          example: food
+        status:
+          type: string
+          example: matched
+        query:
+          $ref: '#/components/schemas/ScanQuery'
+        item:
+          $ref: '#/components/schemas/ScanItem'
+        classification:
+          $ref: '#/components/schemas/ScanClassification'
+        allergens:
+          $ref: '#/components/schemas/ScanAllergens'
+        nutrition:
+          $ref: '#/components/schemas/ScanNutrition'
+        explainability:
+          $ref: '#/components/schemas/ScanExplainability'
+        warnings:
+          type: array
+          items:
+            type: string
+    ImageScanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            scan:
+              $ref: '#/components/schemas/ScanResult'
+            classification:
+              $ref: '#/components/schemas/ScanClassification'
+            explainability:
+              $ref: '#/components/schemas/ScanExplainability'
+        meta:
+          type: object
+          properties:
+            contractVersion:
+              type: string
+              example: v1
+    RecipeImageScanResponse:
+      allOf:
+      - $ref: '#/components/schemas/ImageScanResponse'
+    BarcodeScanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            scan:
+              $ref: '#/components/schemas/ScanResult'
+            classification:
+              $ref: '#/components/schemas/ScanClassification'
+            explainability:
+              $ref: '#/components/schemas/ScanExplainability'
+            productName:
+              type: string
+              nullable: true
+            detectionResult:
+              type: object
+              properties:
+                hasUserAllergen:
+                  type: boolean
+                matchingAllergens:
+                  type: array
+                  items:
+                    type: string
+            barcodeIngredients:
+              type: array
+              items:
+                type: string
+            userAllergenIngredients:
+              type: array
+              items:
+                type: string
+        meta:
+          type: object
+          properties:
+            contractVersion:
+              type: string
+              example: v1
+    ScanErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        code:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+        details:
+          nullable: true
+          additionalProperties: true
     BarcodeAllergenDetection:
       type: object
       properties:
@@ -5396,6 +5630,17 @@ components:
           type: array
           items:
             type: string
+    IngredientSubstitutionResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        ingredientId:
+          type: integer
+        substitutions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
     IngredientOption:
       type: object
       properties:

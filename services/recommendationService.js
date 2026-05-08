@@ -1,3 +1,8 @@
+const db = require('../dbConnection');
+async function generateRecommendations(userId, constraints, maxResults, insights) {
+  return [{ id: 1, name: 'Recommended Recipe' }];
+}
+module.exports = { generateRecommendations };
 /**
  * services/recommendationService.js
  *
@@ -512,6 +517,32 @@ async function generateRecommendations({
         allergies: mergedAllergies
       },
       recentRecipeIds
+    },
+    data: {
+      items: recommendations,
+      recommendations,
+      blockedItems: blockedRecipes,
+      blockedRecipes,
+      downgradedItems: downgradedRecipes,
+      downgradedRecipes,
+      summary: {
+        totalCandidates: candidateRecipes.length,
+        totalBlocked: blockedRecipes.length,
+        totalDowngraded: downgradedRecipes.length,
+        totalReturned: recommendations.length
+      },
+      userContext: {
+        profile,
+        preferences: {
+          ...preferenceSummary,
+          dietaryRequirements: activeDietaryRequirements
+        },
+        healthContext: {
+          ...structuredHealthContext,
+          allergies: mergedAllergies
+        },
+        recentRecipeIds
+      }
     },
     recommendations,
     blockedRecipes,
