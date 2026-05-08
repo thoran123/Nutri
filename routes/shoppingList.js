@@ -1,4 +1,5 @@
 const express = require('express');
+const router = express.Router();
 const { coreApp } = require('../controller');
 const {
   getIngredientOptionsValidation,
@@ -11,23 +12,11 @@ const {
 } = require('../validators/shoppingListValidator.js');
 const validate = require('../middleware/validateRequest.js');
 
-const router = express.Router();
-const { shoppingList: controller } = coreApp;
+const controller = coreApp.shoppingList;
 
 // Planning helpers
-router.get(
-  '/ingredient-options',
-  getIngredientOptionsValidation,
-  validate,
-  controller.getIngredientOptions
-);
-
-router.post(
-  '/from-meal-plan',
-  generateFromMealPlanValidation,
-  validate,
-  controller.generateFromMealPlan
-);
+router.get('/ingredient-options', getIngredientOptionsValidation, validate, controller.getIngredientOptions);
+router.post('/from-meal-plan', generateFromMealPlanValidation, validate, controller.generateFromMealPlan);
 
 // Shopping list collection
 router.route('/')
