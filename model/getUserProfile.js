@@ -1,20 +1,41 @@
 const supabase = require("../dbConnection.js");
 const { decrypt } = require("../services/encryptionService");
 
+function isEncryptedJsonString(value) {
+	if (typeof value !== "string") {
+		return false;
+	}
+
+	try {
+		const parsed = JSON.parse(value);
+		return Boolean(
+			parsed &&
+			typeof parsed === "object" &&
+			parsed.encrypted &&
+			parsed.iv &&
+			parsed.authTag
+		);
+	} catch (_error) {
+		return false;
+	}
+}
+
+async function decryptFieldIfNeeded(value) {
+	if (!value || !isEncryptedJsonString(value)) {
+		return value;
+	}
+
+	const encryptedObj = JSON.parse(value);
+	return decrypt(encryptedObj.encrypted, encryptedObj.iv, encryptedObj.authTag);
+}
+
 async function decryptSensitiveFields(profile) {
 	if (!profile) {
 		return profile;
 	}
 
-	const decryptedContact = profile.contact_number ? await (async () => {
-		const encryptedObj = JSON.parse(profile.contact_number);
-		return await decrypt(encryptedObj.encrypted, encryptedObj.iv, encryptedObj.authTag);
-	})() : profile.contact_number;
-
-	const decryptedAddress = profile.address ? await (async () => {
-		const encryptedObj = JSON.parse(profile.address);
-		return await decrypt(encryptedObj.encrypted, encryptedObj.iv, encryptedObj.authTag);
-	})() : profile.address;
+	const decryptedContact = await decryptFieldIfNeeded(profile.contact_number);
+	const decryptedAddress = await decryptFieldIfNeeded(profile.address);
 
 	return {
 		...profile,
@@ -28,7 +49,7 @@ async function getUserProfile(lookup = {}) {
 		const query = supabase
 			.from("users")
 			.select(
-				"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,user_roles!left(role_name)"
+				"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,profile_encrypted,profile_encryption_iv,profile_encryption_auth_tag,profile_encryption_key_version,user_roles!left(role_name)"
 			);
 
 		if (lookup.userId != null) {
