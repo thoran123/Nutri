@@ -14,6 +14,18 @@ const normalizeId = (id) => {
   return id;
 };
 
+const resolveRecipeUserId = (req) => {
+  const requestUserId = req.body?.user_id || req.query?.user_id || req.params?.user_id;
+  const currentUserId = req.user?.userId;
+  const role = String(req.user?.role || '').toLowerCase();
+
+  if ((role === 'admin' || role === 'nutritionist') && requestUserId) {
+    return normalizeId(requestUserId);
+  }
+
+  return normalizeId(currentUserId);
+};
+
 async function enrichRecipeRow(recipe) {
   if (!recipe) return null;
 
@@ -60,7 +72,6 @@ async function getRecipeDetailRow(recipeId) {
 
 const createAndSaveRecipe = async (req, res) => {
   const {
-    user_id,
     ingredient_id,
     ingredient_quantity,
     recipe_name,
@@ -78,6 +89,7 @@ const createAndSaveRecipe = async (req, res) => {
       return res.status(400).json({ errors: errors.array() });
     }
 
+    const user_id = resolveRecipeUserId(req);
     const recipe = await createRecipe.createRecipe(
       user_id,
       ingredient_id,
@@ -124,7 +136,7 @@ const createAndSaveRecipe = async (req, res) => {
 };
 
 const getRecipes = async (req, res) => {
-  const user_id = req.body.user_id;
+  const user_id = resolveRecipeUserId(req);
 
   try {
     if (!user_id) {
@@ -228,7 +240,7 @@ const getRecipes = async (req, res) => {
 
 const getUserRecipes = async (req, res) => {
   try {
-    let userId = req.params.user_id || req.query.user_id;
+    let userId = resolveRecipeUserId(req);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'user_id is required' });
     }
@@ -291,7 +303,8 @@ const getRecipeNutrition = async (req, res) => {
 };
 
 const deleteRecipe = async (req, res) => {
-  const { user_id, recipe_id } = req.body;
+  const user_id = resolveRecipeUserId(req);
+  const { recipe_id } = req.body;
 
   try {
     if (!user_id || !recipe_id) {
