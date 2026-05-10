@@ -41,6 +41,7 @@ module.exports = (req, res, next) => {
       duration,
       requestId,
       userId: req.user?.userId || null,
+      responseBody: data,
     });
 
     return originalSend.call(this, data);
