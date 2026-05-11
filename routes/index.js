@@ -12,6 +12,8 @@ module.exports = app => {
     app.use('/api/health-tools', require('./healthTools'));
 
     app.use("/api/recipe", require('./recipe'));
+    app.use("/api/recipe-library", require('./recipeLibrary'));
+    app.use("/api/recipe-reviews", require('./recipeReviews'));
     app.use("/api/appointments", require('./appointment'));
     app.use("/api/imageClassification", require('./imageClassification'));
     app.use("/api/recipeImageClassification", require('./recipeImageClassification'));
