@@ -1,5 +1,6 @@
 const authService = require('../services/authService');
 const logger = require('../utils/logger');
+const { supabaseService } = require('../services/supabaseClient');
 const { recordAuthInvalidTokenAttempt } = require('../Monitor_&_Logging/metrics');
 const {
   getActiveBlock,
@@ -13,6 +14,29 @@ const getClientIp = (req) => {
     req.connection?.remoteAddress ||
     'unknown'
   );
+};
+
+const getCurrentUserRole = async (userId) => {
+  if (!supabaseService || !userId) return null;
+
+  const { data, error } = await supabaseService
+    .from('users')
+    .select('user_id,email,role_id,user_roles!left(role_name)')
+    .eq('user_id', Number(userId))
+    .maybeSingle();
+
+  if (error || !data) {
+    logger.warn('Failed to refresh user role from database', {
+      userId,
+      message: error?.message || 'user_not_found',
+    });
+    return null;
+  }
+
+  return {
+    email: data.email || null,
+    role: data.user_roles?.role_name || null,
+  };
 };
 
 /**
@@ -107,11 +131,23 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Attach user to request
+    const currentUser = await getCurrentUserRole(decoded.userId);
+    const currentRole = currentUser?.role || decoded.role;
+
+    if (!currentRole) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token role',
+        code: 'INVALID_TOKEN_ROLE'
+      });
+    }
+
+    // Attach user to request. Role is refreshed from DB so role changes take
+    // effect immediately and stale JWT role claims cannot keep old access.
     req.user = {
       userId: decoded.userId,
-      email: decoded.email,
-      role: decoded.role
+      email: currentUser?.email || decoded.email,
+      role: String(currentRole).toLowerCase()
     };
 
     next();
