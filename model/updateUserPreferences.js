@@ -66,18 +66,24 @@ function normalizeNotificationPreferences(preferences = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Join table helpers
+// Join table config — single source of truth for all food preference groups
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PREFERENCE_TABLES = [
   { table: "user_dietary_requirements", foreignKey: "dietary_requirement_id", key: "dietary_requirements" },
-  { table: "user_allergies", foreignKey: "allergy_id", key: "allergies" },
-  { table: "user_cuisines", foreignKey: "cuisine_id", key: "cuisines" },
-  { table: "user_dislikes", foreignKey: "dislike_id", key: "dislikes" },
-  { table: "user_health_conditions", foreignKey: "health_condition_id", key: "health_conditions" },
-  { table: "user_spice_levels", foreignKey: "spice_level_id", key: "spice_levels" },
-  { table: "user_cooking_methods", foreignKey: "cooking_method_id", key: "cooking_methods" }
+  { table: "user_allergies",            foreignKey: "allergy_id",             key: "allergies" },
+  { table: "user_cuisines",             foreignKey: "cuisine_id",             key: "cuisines" },
+  { table: "user_dislikes",             foreignKey: "dislike_id",             key: "dislikes" },
+  { table: "user_health_conditions",    foreignKey: "health_condition_id",    key: "health_conditions" },
+  { table: "user_spice_levels",         foreignKey: "spice_level_id",         key: "spice_levels" },
+  { table: "user_cooking_methods",      foreignKey: "cooking_method_id",      key: "cooking_methods" },
 ];
+
+const FOOD_PREFERENCE_KEYS = PREFERENCE_TABLES.map(({ key }) => key);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Join table helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function replaceJoinTable(table, userId, foreignKey, values = []) {
   const { error: deleteError } = await supabase
@@ -86,7 +92,6 @@ async function replaceJoinTable(table, userId, foreignKey, values = []) {
     .eq("user_id", userId);
 
   if (deleteError) throw deleteError;
-
   if (!values.length) return;
 
   const records = values.map((value) => ({
@@ -142,40 +147,30 @@ async function updateUserPreferences(userId, body = {}) {
   }
 
   // Support both canonical nested payload { food_preferences: { ... } }
-  // and legacy flat payload { dietary_requirements: [], cuisines: [], ... }
+  // and legacy flat payload { dietary_requirements: [], ... }
   const foodSource = getFoodPreferenceSource(body);
+
   const incomingHealthContext =
     body.health_context && typeof body.health_context === "object"
       ? body.health_context
       : undefined;
 
-  // Detect which sections were explicitly provided
-  const hasDietaryRequirementsUpdate = hasOwnProperty(foodSource, "dietary_requirements");
-  const hasCuisinesUpdate           = hasOwnProperty(foodSource, "cuisines");
-  const hasDislikesUpdate           = hasOwnProperty(foodSource, "dislikes");
-  const hasSpiceLevelsUpdate        = hasOwnProperty(foodSource, "spice_levels");
-  const hasCookingMethodsUpdate     = hasOwnProperty(foodSource, "cooking_methods");
+  // Detect which food preference groups were explicitly provided
+  // using FOOD_PREFERENCE_KEYS so allergies and health_conditions are never missed
+  const foodGroupUpdates = {};
+  for (const key of FOOD_PREFERENCE_KEYS) {
+    if (hasOwnProperty(foodSource, key)) {
+      foodGroupUpdates[key] = normalizePreferenceIds(foodSource[key]);
+    }
+  }
 
-  const hasAllergiesUpdate =
-    hasOwnProperty(body, "allergies") ||
-    (incomingHealthContext && hasOwnProperty(incomingHealthContext, "allergies"));
-
-  const hasHealthConditionsUpdate =
-    hasOwnProperty(body, "health_conditions") ||
-    (incomingHealthContext && hasOwnProperty(incomingHealthContext, "chronic_conditions"));
-
-  const hasHealthContextUpdate      = hasOwnProperty(body, "health_context");
-  const hasNotificationUpdate       = hasOwnProperty(body, "notification_preferences");
-  const hasUiSettingsUpdate         = hasOwnProperty(body, "ui_settings");
+  const hasFoodGroupUpdates = Object.keys(foodGroupUpdates).length > 0;
+  const hasHealthContextUpdate   = hasOwnProperty(body, "health_context");
+  const hasNotificationUpdate    = hasOwnProperty(body, "notification_preferences");
+  const hasUiSettingsUpdate      = hasOwnProperty(body, "ui_settings");
 
   const hasAnySupportedUpdate =
-    hasDietaryRequirementsUpdate ||
-    hasAllergiesUpdate ||
-    hasCuisinesUpdate ||
-    hasDislikesUpdate ||
-    hasHealthConditionsUpdate ||
-    hasSpiceLevelsUpdate ||
-    hasCookingMethodsUpdate ||
+    hasFoodGroupUpdates ||
     hasHealthContextUpdate ||
     hasNotificationUpdate ||
     hasUiSettingsUpdate;
@@ -188,61 +183,20 @@ async function updateUserPreferences(userId, body = {}) {
   const current = await fetchUserPreferences(normalizedUserId);
 
   // ── Join tables ────────────────────────────────────────────────────────────
-  const shouldUpdateJoinTables =
-    hasDietaryRequirementsUpdate ||
-    hasAllergiesUpdate ||
-    hasCuisinesUpdate ||
-    hasDislikesUpdate ||
-    hasHealthConditionsUpdate ||
-    hasSpiceLevelsUpdate ||
-    hasCookingMethodsUpdate;
-
-  if (shouldUpdateJoinTables) {
-    const nextGroups = {
-      dietary_requirements: hasDietaryRequirementsUpdate
-        ? normalizePreferenceIds(foodSource.dietary_requirements)
-        : normalizePreferenceIds(current.dietary_requirements),
-
-      allergies: hasAllergiesUpdate
-        ? normalizePreferenceIds(
-            incomingHealthContext && hasOwnProperty(incomingHealthContext, "allergies")
-              ? incomingHealthContext.allergies
-              : body.allergies
-          )
-        : normalizePreferenceIds(current.allergies),
-
-      cuisines: hasCuisinesUpdate
-        ? normalizePreferenceIds(foodSource.cuisines)
-        : normalizePreferenceIds(current.cuisines),
-
-      dislikes: hasDislikesUpdate
-        ? normalizePreferenceIds(foodSource.dislikes)
-        : normalizePreferenceIds(current.dislikes),
-
-      health_conditions: hasHealthConditionsUpdate
-        ? normalizePreferenceIds(
-            incomingHealthContext && hasOwnProperty(incomingHealthContext, "chronic_conditions")
-              ? incomingHealthContext.chronic_conditions
-              : body.health_conditions
-          )
-        : normalizePreferenceIds(current.health_conditions),
-
-      spice_levels: hasSpiceLevelsUpdate
-        ? normalizePreferenceIds(foodSource.spice_levels)
-        : normalizePreferenceIds(current.spice_levels),
-
-      cooking_methods: hasCookingMethodsUpdate
-        ? normalizePreferenceIds(foodSource.cooking_methods)
-        : normalizePreferenceIds(current.cooking_methods),
-    };
+  if (hasFoodGroupUpdates) {
+    // Build the full set of groups — use incoming value if provided, else keep current
+    const nextGroups = {};
+    for (const key of FOOD_PREFERENCE_KEYS) {
+      nextGroups[key] = hasOwnProperty(foodGroupUpdates, key)
+        ? foodGroupUpdates[key]
+        : normalizePreferenceIds(current[key]);
+    }
 
     await replaceUserPreferencesTransaction(normalizedUserId, nextGroups);
   }
 
   // ── Preference state (health_context, notifications, ui_settings) ──────────
   if (hasHealthContextUpdate || hasNotificationUpdate || hasUiSettingsUpdate) {
-    const currentState = current;
-
     await saveUserPreferenceState(normalizedUserId, (stored) => {
       const currentHealthContext = stored.health_context || EMPTY_HEALTH_CONTEXT;
 
@@ -260,28 +214,30 @@ async function updateUserPreferences(userId, body = {}) {
           }
         : currentHealthContext;
 
-      const nextNotificationPreferences = hasNotificationUpdate
-        ? normalizeNotificationPreferences({
+      const nextNotifications = hasNotificationUpdate
+        ? {
             ...(stored.notification_preferences || {}),
-            ...body.notification_preferences,
-          })
-        : stored.notification_preferences || {};
+            ...normalizeNotificationPreferences(body.notification_preferences)
+          }
+        : (stored.notification_preferences || {});
 
       const nextUiSettings = hasUiSettingsUpdate
-        ? normalizeUiSettings({
+        ? {
             ...(stored.ui_settings || {}),
-            ...body.ui_settings,
-          })
-        : stored.ui_settings || {};
+            ...body.ui_settings
+          }
+        : (stored.ui_settings || {});
 
       return {
         ...stored,
         health_context: nextHealthContext,
-        notification_preferences: nextNotificationPreferences,
+        notification_preferences: nextNotifications,
         ui_settings: nextUiSettings,
       };
     });
   }
+
+  return fetchUserPreferences(normalizedUserId);
 }
 
 module.exports = updateUserPreferences;

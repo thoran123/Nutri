@@ -209,9 +209,7 @@ async function getNotificationPreferences(userId) {
   return {
     success: true,
     contractVersion: USER_PREFERENCES_CONTRACT_VERSION,
-    data: {
-      notification_preferences: response.data.notification_preferences
-    }
+    data: response.data.notification_preferences
   };
 }
 
