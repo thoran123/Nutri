@@ -179,7 +179,7 @@ async function updateUser({ userId, attributes = {} }) {
 			const { data, error } = await supabase
 				.from("users")
 				.select(
-					"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,user_roles!left(role_name)"
+					"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,profile_encrypted,profile_encryption_iv,profile_encryption_auth_tag,profile_encryption_key_version,user_roles!left(role_name)"
 				)
 				.eq("user_id", userId)
 				.maybeSingle();
@@ -193,7 +193,7 @@ async function updateUser({ userId, attributes = {} }) {
 			.update(payload)
 			.eq("user_id", userId)
 			.select(
-				"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,user_roles!left(role_name)"
+				"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,profile_encrypted,profile_encryption_iv,profile_encryption_auth_tag,profile_encryption_key_version,user_roles!left(role_name)"
 			)
 			.maybeSingle();
 
