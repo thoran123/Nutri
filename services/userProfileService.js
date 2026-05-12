@@ -251,21 +251,21 @@ async function updateCanonicalProfile({ actor, targetLookup, body }) {
     attributes.address = null;
   }
 
-  const updatedProfile = await updateUser({
+  await updateUser({
     userId: existingProfile.user_id,
     attributes
   });
 
-  const mergedProfile = updatedProfile || existingProfile;
-
   if (updates.userImage) {
-    mergedProfile.image_url = await saveImage(updates.userImage, existingProfile.user_id);
+    await saveImage(updates.userImage, existingProfile.user_id);
   }
 
-  const preferences = await fetchUserPreferences(existingProfile.user_id);
+  // Re-read canonical profile so the response always includes decrypted
+  // sensitive fields from profile_encrypted (contactNumber/address).
+  const refreshed = await getCanonicalProfile({ userId: existingProfile.user_id });
 
   return {
-    ...buildProfileResponse(mergedProfile, preferences),
+    ...refreshed,
     message: 'Profile updated successfully',
     meta: {
       updatedBy: actor?.userId || null
