@@ -2,32 +2,39 @@ const supabase = require("../dbConnection.js");
 const { decode } = require("base64-arraybuffer");
 const { encrypt, decrypt } = require("../services/encryptionService");
 
-function isEncryptedJsonString(value) {
-	if (typeof value !== "string") {
-		return false;
-	}
+function parseEncryptedPayload(rawValue) {
+	if (typeof rawValue !== "string") return null;
+	const trimmed = rawValue.trim();
+	if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
 
 	try {
-		const parsed = JSON.parse(value);
-		return Boolean(
+		const parsed = JSON.parse(trimmed);
+		if (
 			parsed &&
 			typeof parsed === "object" &&
-			parsed.encrypted &&
-			parsed.iv &&
-			parsed.authTag
-		);
+			typeof parsed.encrypted === "string" &&
+			typeof parsed.iv === "string" &&
+			typeof parsed.authTag === "string"
+		) {
+			return parsed;
+		}
+		return null;
 	} catch (_error) {
-		return false;
+		return null;
 	}
 }
 
-async function decryptFieldIfNeeded(value) {
-	if (!value || !isEncryptedJsonString(value)) {
+async function maybeDecryptLegacyField(value) {
+	if (!value) return value;
+	const encryptedObj = parseEncryptedPayload(value);
+	if (!encryptedObj) return value;
+
+	try {
+		return await decrypt(encryptedObj.encrypted, encryptedObj.iv, encryptedObj.authTag);
+	} catch (_error) {
+		// Keep profile reads resilient for mixed plaintext/encrypted legacy rows.
 		return value;
 	}
-
-	const encryptedObj = JSON.parse(value);
-	return decrypt(encryptedObj.encrypted, encryptedObj.iv, encryptedObj.authTag);
 }
 
 async function decryptSensitiveFields(profile) {
@@ -35,8 +42,8 @@ async function decryptSensitiveFields(profile) {
 		return profile;
 	}
 
-	const decryptedContact = await decryptFieldIfNeeded(profile.contact_number);
-	const decryptedAddress = await decryptFieldIfNeeded(profile.address);
+	const decryptedContact = await maybeDecryptLegacyField(profile.contact_number);
+	const decryptedAddress = await maybeDecryptLegacyField(profile.address);
 
 	return {
 		...profile,
