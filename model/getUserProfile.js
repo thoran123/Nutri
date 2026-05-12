@@ -1,15 +1,53 @@
 const supabase = require("../dbConnection.js");
-const { decrypt } = require("../utils/encryption");
+const { decrypt } = require("../services/encryptionService");
 
-function decryptSensitiveFields(profile) {
+function parseEncryptedPayload(rawValue) {
+	if (typeof rawValue !== "string") return null;
+	const trimmed = rawValue.trim();
+	if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+
+	try {
+		const parsed = JSON.parse(trimmed);
+		if (
+			parsed &&
+			typeof parsed === "object" &&
+			typeof parsed.encrypted === "string" &&
+			typeof parsed.iv === "string" &&
+			typeof parsed.authTag === "string"
+		) {
+			return parsed;
+		}
+		return null;
+	} catch (_error) {
+		return null;
+	}
+}
+
+async function maybeDecryptLegacyField(value) {
+	if (!value) return value;
+	const encryptedObj = parseEncryptedPayload(value);
+	if (!encryptedObj) return value;
+
+	try {
+		return await decrypt(encryptedObj.encrypted, encryptedObj.iv, encryptedObj.authTag);
+	} catch (_error) {
+		// Keep profile fetch resilient for mixed plaintext/encrypted legacy rows.
+		return value;
+	}
+}
+
+async function decryptSensitiveFields(profile) {
 	if (!profile) {
 		return profile;
 	}
 
+	const decryptedContact = await maybeDecryptLegacyField(profile.contact_number);
+	const decryptedAddress = await maybeDecryptLegacyField(profile.address);
+
 	return {
 		...profile,
-		contact_number: profile.contact_number ? decrypt(profile.contact_number) : profile.contact_number,
-		address: profile.address ? decrypt(profile.address) : profile.address,
+		contact_number: decryptedContact,
+		address: decryptedAddress,
 	};
 }
 
@@ -18,7 +56,7 @@ async function getUserProfile(lookup = {}) {
 		const query = supabase
 			.from("users")
 			.select(
-				"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,user_roles!left(role_name)"
+				"user_id,name,first_name,last_name,email,contact_number,mfa_enabled,address,image_id,registration_date,last_login,account_status,profile_encrypted,profile_encryption_iv,profile_encryption_auth_tag,profile_encryption_key_version,user_roles!left(role_name)"
 			);
 
 		if (lookup.userId != null) {
@@ -38,7 +76,7 @@ async function getUserProfile(lookup = {}) {
 			return null;
 		}
 
-		const profile = decryptSensitiveFields(data);
+		const profile = await decryptSensitiveFields(data);
 
 		if (profile.image_id != null) {
 			profile.image_url = await getImageUrl(profile.image_id);
@@ -60,14 +98,35 @@ async function getImageUrl(image_id) {
 			.select("*")
 			.eq("id", image_id);
 		if (data[0] != null) {
-			let x = `${process.env.SUPABASE_STORAGE_URL}${data[0].file_name}`;
-			return x;
+			return await resolveImageUrl(data[0].file_name);
 		}
 		return data;
 	} catch (error) {
 		console.log(error);
 		throw error;
 	}
+}
+
+async function resolveImageUrl(file_name) {
+	if (!file_name) return null;
+
+	// Signed URL works for both public and private buckets.
+	const { data: signedData, error: signedError } = await supabase
+		.storage
+		.from("images")
+		.createSignedUrl(file_name, 60 * 60 * 24);
+
+	if (!signedError && signedData?.signedUrl) {
+		return signedData.signedUrl;
+	}
+
+	// Fallback to public URL if signing fails for any reason.
+	const { data: publicData } = supabase
+		.storage
+		.from("images")
+		.getPublicUrl(file_name);
+
+	return publicData?.publicUrl || null;
 }
 
 module.exports = getUserProfile;

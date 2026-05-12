@@ -1,9 +1,9 @@
-const fetchAllDietaryRequirements = require("../model/fetchAllDietaryRequirements.js");
-const fetchAllCuisines = require("../model/fetchAllCuisines.js");
-const fetchAllAllergies = require("../model/fetchAllAllergies.js");
-const fetchAllIngredients = require("../model/fetchAllIngredients.js");
-const fetchAllCookingMethods = require("../model/fetchAllCookingMethods.js");
-const fetchAllSpiceLevels = require("../model/fetchAllSpiceLevels.js");
+const fetchAllDietaryRequirements = require("../model/fetchAllDietaryRequirements");
+const fetchAllCuisines = require("../model/fetchAllCuisines");
+const fetchAllAllergies = require("../model/fetchAllAllergies");
+const fetchAllIngredients = require("../model/fetchAllIngredients");
+const fetchAllCookingMethods = require("../model/fetchAllCookingMethods");
+const fetchAllSpiceLevels = require("../model/fetchAllSpiceLevels");
 const fetchAllHealthConditions = require("../model/fetchAllHealthConditions");
 const logger = require("../utils/logger");
 
@@ -68,7 +68,7 @@ async function getCachedLookup(cacheKey, fetcher) {
 }
 
 function createLookupHandler(cacheKey, fetcher, label) {
-  return async (req, res) => {
+  return async (_req, res) => {
     try {
       const rows = await getCachedLookup(cacheKey, fetcher);
       return res.status(200).json(rows);

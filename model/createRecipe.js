@@ -1,5 +1,4 @@
 const supabase = require("../dbConnection.js");
-const { decode } = require("base64-arraybuffer");
 
 async function createRecipe(
 	user_id,
@@ -10,17 +9,29 @@ async function createRecipe(
 	total_servings,
 	preparation_time,
 	instructions,
-	cooking_method_id
+	cooking_method_id,
+	ingredient_cost = []
 ) {
+	const normalizedIngredientCost = Array.isArray(ingredient_cost)
+		? ingredient_cost.map((value) => {
+			const parsed = Number(value);
+			return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(2)) : null;
+		})
+		: [];
+
 	recipe = {
 		user_id: user_id,
 		recipe_name: recipe_name,
 		cuisine_id: cuisine_id,
 		total_servings: total_servings,
 		preparation_time: preparation_time,
+		visibility: "user_private",
+		is_published: false,
+		published_at: null,
 		ingredients: {
 			id: ingredient_id,
 			quantity: ingredient_quantity,
+			cost: normalizedIngredientCost,
 		},
 		cooking_method_id: cooking_method_id,
 	};
@@ -104,36 +115,82 @@ async function saveRecipe(recipe) {
 			.from("recipes")
 			.insert(recipe)
 			.select();
+		if (error) throw error;
 		return data;
 	} catch (error) {
 		throw error;
 	}
 }
 
+function parseBase64Image(image) {
+	const raw = String(image || "");
+	const match = raw.match(/^data:(image\/[a-zA-Z0-9.+-]+)(?:;[^,]*)?;base64,(.+)$/);
+	let base64 = raw;
+	let mimeType = "image/png";
+
+	if (match) {
+		mimeType = match[1];
+		base64 = match[2];
+	} else if (raw.includes(",")) {
+		base64 = raw.split(",").pop();
+	}
+
+	const buffer = Buffer.from(base64, "base64");
+	const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+	const isPng =
+		buffer[0] === 0x89 &&
+		buffer[1] === 0x50 &&
+		buffer[2] === 0x4e &&
+		buffer[3] === 0x47;
+	const isWebp =
+		buffer.toString("ascii", 0, 4) === "RIFF" &&
+		buffer.toString("ascii", 8, 12) === "WEBP";
+
+	if (!isJpeg && !isPng && !isWebp) {
+		throw new Error("Recipe image is not a valid JPEG, PNG, or WebP file");
+	}
+
+	if (isJpeg) return { buffer, mimeType: "image/jpeg", extension: "jpg" };
+	if (isPng) return { buffer, mimeType: "image/png", extension: "png" };
+	return { buffer, mimeType: "image/webp", extension: "webp" };
+}
+
 async function saveImage(image, recipe_id) {
-	let file_name = `recipe/${recipe_id}.png`;
 	if (image === undefined || image === null) return null;
 
 	try {
-		await supabase.storage.from("images").upload(file_name, decode(image), {
+		const parsed = parseBase64Image(image);
+		let file_name = `recipe/${recipe_id}.${parsed.extension}`;
+
+		await supabase.storage.from("images").remove([file_name]);
+
+		const { error: uploadError } = await supabase.storage.from("images").upload(file_name, parsed.buffer, {
 			cacheControl: "3600",
-			upsert: false,
+			contentType: parsed.mimeType,
+			upsert: true,
 		});
+		if (uploadError) throw uploadError;
+
 		const test = {
 			file_name: file_name,
 			display_name: file_name,
 			file_size: base64FileSize(image),
 		};
 
-		let { data: image_data } = await supabase
+		let { data: image_data, error: imageInsertError } = await supabase
 			.from("images")
 			.insert(test)
 			.select("*");
+		if (imageInsertError) throw imageInsertError;
 
-		await supabase
+		const { error: recipeUpdateError } = await supabase
 			.from("recipes")
 			.update({ image_id: image_data[0].id }) // e.g { email: "sample@email.com" }
 			.eq("id", recipe_id);
+		if (recipeUpdateError) throw recipeUpdateError;
+
+		const { data: publicImage } = supabase.storage.from("images").getPublicUrl(file_name);
+		return publicImage?.publicUrl || `${process.env.SUPABASE_STORAGE_URL || ""}${file_name}`;
 	} catch (error) {
 		throw error;
 	}
