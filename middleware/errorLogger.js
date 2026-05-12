@@ -1,5 +1,5 @@
 // middleware/errorLogger.js
-const errorLogService = require("../services/errorLogService");
+const errorLogService = require('../services/errorLogService');
 
 /**
  * Enhanced error logging middleware
@@ -19,13 +19,13 @@ const errorLogger = (err, req, res, next) => {
       additionalContext: {
         request_id: req.requestId,
         route: req.route?.path,
-        middleware_stack: req.route?.stack?.map((s) => s.handle.name),
+        middleware_stack: req.route?.stack?.map(s => s.handle.name),
         query_params: req.query,
         path_params: req.params,
       },
     })
-    .catch((loggingError) => {
-      console.error("Error in error logging middleware:", loggingError);
+    .catch(loggingError => {
+      console.error('Error in error logging middleware:', loggingError);
     });
 
   next(err);
@@ -38,7 +38,7 @@ const responseTimeLogger = (req, res, next) => {
   const startTime = Date.now();
 
   // Capture response end event
-  res.on("finish", () => {
+  res.on('finish', () => {
     const responseTime = Date.now() - startTime;
     res.responseTime = responseTime;
 
@@ -48,8 +48,8 @@ const responseTimeLogger = (req, res, next) => {
         error: new Error(`Slow request detected: ${responseTime}ms`),
         req,
         res,
-        category: "warning",
-        type: "performance",
+        category: 'warning',
+        type: 'performance',
         additionalContext: {
           request_id: req.requestId,
           response_time_ms: responseTime,
@@ -65,19 +65,19 @@ const responseTimeLogger = (req, res, next) => {
 /**
  * Uncaught exception handler
  */
-const uncaughtExceptionHandler = (error) => {
+const uncaughtExceptionHandler = error => {
   errorLogService.logError({
     error,
-    category: "critical",
-    type: "system",
+    category: 'critical',
+    type: 'system',
     additionalContext: {
-      request_id: req.requestId,
+      request_id: null,
       uncaught_exception: true,
       process_uptime: process.uptime(),
     },
   });
 
-  console.error("Uncaught Exception:", error);
+  console.error('Uncaught Exception:', error);
   // Graceful shutdown
   process.exit(1);
 };
@@ -88,15 +88,15 @@ const uncaughtExceptionHandler = (error) => {
 const unhandledRejectionHandler = (reason, promise) => {
   errorLogService.logError({
     error: new Error(`Unhandled Promise Rejection: ${reason}`),
-    category: "critical",
-    type: "system",
+    category: 'critical',
+    type: 'system',
     additionalContext: {
       unhandled_rejection: true,
       promise_state: promise,
     },
   });
 
-  console.error("Unhandled Rejection:", reason);
+  console.error('Unhandled Rejection:', reason);
 };
 
 module.exports = {
