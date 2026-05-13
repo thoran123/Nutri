@@ -26,8 +26,8 @@ const ALLOWED_DIFFICULTY = new Set(['easy', 'medium', 'hard']);
 const ALLOWED_SPICE = new Set(['none', 'mild', 'medium', 'hot']);
 const ENRICHMENT_PROMPT_VERSION = 'recipe_library_v1_2026_05_07';
 const UNSPLASH_API_URL = 'https://api.unsplash.com/search/photos';
-const EDITABLE_IMPORT_QUEUE_STATUSES = new Set(['pending', 'queued', 'failed', 'rejected']);
-const CANCELABLE_IMPORT_QUEUE_STATUSES = new Set(['pending', 'queued', 'failed', 'rejected', 'enriching']);
+const EDITABLE_IMPORT_QUEUE_STATUSES = new Set(['pending', 'queued', 'failed', 'rejected', 'enriched']);
+const CANCELABLE_IMPORT_QUEUE_STATUSES = new Set(['pending', 'queued', 'failed', 'rejected', 'enriching', 'enriched']);
 let recipeTrashColumnsSupportedCache = null;
 
 function slugify(value) {
@@ -327,6 +327,72 @@ function validateEnrichmentPayload(aiPayload) {
   }
 }
 
+function getNestedObject(input = {}, keys = []) {
+  for (const key of keys) {
+    const value = input?.[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  }
+  return null;
+}
+
+function unwrapEnrichmentPayload(aiPayload = {}) {
+  const payload = normalizeObject(aiPayload) || {};
+  const nested = getNestedObject(payload, [
+    'recipe',
+    'recipe_data',
+    'recipeData',
+    'recipe_details',
+    'recipeDetails',
+    'data',
+    'result',
+    'enriched_payload',
+  ]);
+  return nested && Object.keys(nested).length ? nested : payload;
+}
+
+function normalizeEnrichmentPayload(aiPayload = {}, queueRow = {}) {
+  const payload = unwrapEnrichmentPayload(aiPayload);
+  const nutrition =
+    normalizeObject(payload.nutrition) ||
+    normalizeObject(payload.nutrition_per_serving) ||
+    normalizeObject(payload.nutritionPerServing) ||
+    normalizeObject(payload.nutritional_info) ||
+    normalizeObject(payload.nutritionalInfo) ||
+    {};
+  const pick = (...keys) => {
+    for (const key of keys) {
+      if (payload[key] !== undefined) return payload[key];
+    }
+    return undefined;
+  };
+  const pickNumber = (key) => numberOrNull(payload[key] ?? nutrition[key]);
+
+  return {
+    ...payload,
+    recipe_name: cleanText(pick('recipe_name', 'recipeName', 'name', 'title')) || cleanText(queueRow.dish_name) || null,
+    dish_name: cleanText(pick('dish_name', 'dishName')) || cleanText(queueRow.dish_name) || null,
+    meal_type: normalizeMealType(pick('meal_type', 'mealType') || queueRow.meal_type, null),
+    ingredients: normalizeJsonArray(pick('ingredients', 'recipe_ingredients', 'recipeIngredients')),
+    instructions: normalizeJsonArray(pick('instructions', 'steps', 'method'), { asInstruction: true })
+      .map((line) => cleanText(line))
+      .filter(Boolean),
+    servings: numberOrNull(pick('servings', 'total_servings', 'totalServings')),
+    calories: pickNumber('calories'),
+    protein: pickNumber('protein'),
+    fat: pickNumber('fat'),
+    saturated_fat: pickNumber('saturated_fat'),
+    carbohydrates: pickNumber('carbohydrates'),
+    fiber: pickNumber('fiber'),
+    sugar: pickNumber('sugar'),
+    sodium: pickNumber('sodium'),
+    potassium: pickNumber('potassium'),
+    calcium: pickNumber('calcium'),
+    iron: pickNumber('iron'),
+    vitamin_a: pickNumber('vitamin_a'),
+    vitamin_c: pickNumber('vitamin_c'),
+  };
+}
+
 function detectQuotaPauseReason(error) {
   const statusCode = Number(error?.statusCode || error?.status || error?.response?.status || 0);
   const parts = [
@@ -390,13 +456,17 @@ async function getReferenceLookups() {
   };
 }
 
-async function fetchDishImageMetadata(dishName, cuisineName) {
-  const accessKey =
+function getUnsplashAccessKey() {
+  return (
     process.env.UNSPLASH_ACCESS_KEY ||
     process.env.REACT_APP_UNSPLASH_ACCESS_KEY ||
     process.env.UNSPLASH_API_KEY ||
-    '';
+    ''
+  );
+}
 
+async function fetchDishImageMetadata(dishName, cuisineName) {
+  const accessKey = getUnsplashAccessKey();
   if (!accessKey) return null;
 
   const query = [dishName, cuisineName, 'food dish'].filter(Boolean).join(' ');
@@ -991,6 +1061,12 @@ async function unpublishCatalogRecipe(id, adminUserId) {
 }
 
 async function fetchMissingRecipeImages(input = {}, adminUserId) {
+  if (!getUnsplashAccessKey()) {
+    const error = new Error('Unsplash image fetching is not configured. Set UNSPLASH_ACCESS_KEY in the backend .env and restart the API.');
+    error.statusCode = 503;
+    throw error;
+  }
+
   const rawIds = Array.isArray(input.recipe_ids || input.recipeIds) ? input.recipe_ids || input.recipeIds : [];
   const ids = rawIds
     .map((id) => Number(id))
@@ -1338,8 +1414,14 @@ function mergeQueueDraft(row) {
   const raw = normalizeQueueRawObject(row?.ai_raw_response);
   const manual = normalizeObject(raw.manual_input) || {};
   const aiPayload = extractAiPayloadFromRaw(raw);
+  const hasManualValue = (value) => {
+    if (Array.isArray(value)) return value.length > 0;
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string') return Boolean(cleanText(value));
+    return true;
+  };
   const pick = (key, fallback = null) => {
-    if (Object.prototype.hasOwnProperty.call(manual, key)) return manual[key];
+    if (Object.prototype.hasOwnProperty.call(manual, key) && hasManualValue(manual[key])) return manual[key];
     if (Object.prototype.hasOwnProperty.call(aiPayload, key)) return aiPayload[key];
     return fallback;
   };
@@ -1681,7 +1763,7 @@ async function enrichImportQueueBatch(input = {}, adminUserId) {
         .eq('id', row.id);
 
       const ai = await generateRecipeEnrichment(row);
-      validateEnrichmentPayload(ai.parsed);
+      const aiPayload = normalizeEnrichmentPayload(ai.parsed, row);
 
       const latestQueueRow = await getImportQueueRowById(row.id);
       if (normalizeQueueStatus(latestQueueRow?.status) === 'rejected') {
@@ -1690,8 +1772,8 @@ async function enrichImportQueueBatch(input = {}, adminUserId) {
       }
 
       const image = await fetchDishImageMetadata(
-        ai.parsed.dish_name || ai.parsed.recipe_name || row.dish_name,
-        ai.parsed.cuisine_name || row.cuisine_hint
+        aiPayload.dish_name || aiPayload.recipe_name || row.dish_name,
+        aiPayload.cuisine_name || row.cuisine_hint
       );
 
       const beforeInsertQueueRow = await getImportQueueRowById(row.id);
@@ -1703,31 +1785,46 @@ async function enrichImportQueueBatch(input = {}, adminUserId) {
       const raw = normalizeQueueRawObject(row.ai_raw_response);
       const manual = normalizeObject(raw.manual_input) || {};
       const enrichedPayload = {
-        ...ai.parsed,
+        ...aiPayload,
         ...(image || {}),
       };
+      const nextRawResponse = {
+        ...enrichedPayload,
+        manual_input: manual,
+        enriched_payload: enrichedPayload,
+        ai_provider: ai.provider,
+        ai_model: ai.model,
+        ai_prompt_version: ENRICHMENT_PROMPT_VERSION,
+        ai_confidence: numberOrNull(aiPayload.ai_confidence),
+        quality_notes: cleanText(aiPayload.quality_notes) || null,
+      };
+      const decoratedNextRow = decorateQueueRowForReview({
+        ...row,
+        ai_raw_response: nextRawResponse,
+      });
+      const missingFields = Array.isArray(decoratedNextRow.missing_fields) ? decoratedNextRow.missing_fields : [];
+      const nextStatus = missingFields.length ? 'failed' : 'enriched';
+      const nextErrorMessage = missingFields.length
+        ? `AI enrichment incomplete. Missing: ${missingFields.join(', ')}`
+        : null;
 
       const { error: updateQueueError } = await supabaseService
         .from(IMPORT_QUEUE_TABLE)
         .update({
-          status: 'enriched',
-          ai_raw_response: {
-            ...enrichedPayload,
-            manual_input: manual,
-            enriched_payload: enrichedPayload,
-            ai_provider: ai.provider,
-            ai_model: ai.model,
-            ai_prompt_version: ENRICHMENT_PROMPT_VERSION,
-            ai_confidence: numberOrNull(ai.parsed.ai_confidence),
-            quality_notes: cleanText(ai.parsed.quality_notes) || null,
-          },
-          error_message: null,
+          status: nextStatus,
+          ai_raw_response: nextRawResponse,
+          error_message: nextErrorMessage,
         })
         .eq('id', row.id);
 
       if (updateQueueError) throw updateQueueError;
 
-      results.push({ queueId: row.id, status: 'enriched' });
+      results.push({
+        queueId: row.id,
+        status: nextStatus,
+        missing_fields: missingFields,
+        error: nextErrorMessage,
+      });
     } catch (error) {
       const quotaReason = detectQuotaPauseReason(error);
       if (quotaReason) {
